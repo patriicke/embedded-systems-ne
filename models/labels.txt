@@ -1,2 +1,2 @@
-0 Ok_sign
-1 No_okay_sign
+0 okay
+1 not_okay

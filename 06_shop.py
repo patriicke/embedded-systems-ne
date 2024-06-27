@@ -45,6 +45,36 @@ current_customer_uid = None
 ok_sign_count = 0
 REQUIRED_OK_SIGN_COUNT = 5
 
+# Open a connection to the first webcam
+camera = cv2.VideoCapture(0)
+
+# Initialize variables for sunglasses fitting
+num = 0
+count = 0
+
+# Function to create the cart table
+def create_cart_table():
+    try:
+        conn = sqlite3.connect('customer_faces_data.db')
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS cart (
+                customer_uid INTEGER,
+                product_id INTEGER,
+                quantity INTEGER,
+                PRIMARY KEY (customer_uid, product_id)
+            )
+        ''')
+        conn.commit()
+    except sqlite3.Error as e:
+        print("SQLite error:", e)
+    finally:
+        if conn:
+            conn.close()
+
+# Create the cart table
+create_cart_table()
+
 # Initialize Bluetooth serial communication
 bluetooth_port = '/dev/cu.usbmodem1201'  # Replace with your Bluetooth COM port
 baud_rate = 9600  # Standard baud rate for Bluetooth modules
@@ -56,27 +86,17 @@ try:
 except serial.SerialException as e:
     print(f"Failed to connect to Bluetooth on {bluetooth_port}: {e}")
 
-# Open a connection to the first webcam
-camera = cv2.VideoCapture(0)
-
-# Initialize sunglasses overlay index
-num = 0
-
-# Initialize blink detection count
-count = 0
-
 # Main video capture and processing loop
 while True:
     # Capture frame-by-frame
     ret, frame = camera.read()
     if not ret:
-        print("Failed to capture frame from camera.")
         break
     
-    # Convert frame to grayscale
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
     if not face_recognized:
+        # Convert frame to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
         # Detect faces
         faces = faceCascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
         
@@ -87,9 +107,6 @@ while True:
             customer_name = "Unknown"
             nametagColor = unknownTagColor
             faceRectangleColor = unknownFaceRectangleColor
-            
-            print(f"Confidence: {confidence}")
-            print(f"Customer UID: {customer_uid}")
             
             # If the face is recognized within the confidence range
             if 60 < confidence < 110:
@@ -133,11 +150,13 @@ while True:
             cv2.putText(frame, f"{customer_name}", (x, y - fontBottomMargin), fontFace, fontScale, fontColor, fontWeight)
         
         # Display the resulting frame
-        cv2.imshow('Face Recognition', frame)
+        cv2.imshow('Detecting Faces...', frame)
     
-    elif face_recognized:
-        # Sunglasses fitting and OK sign detection logic
-        sign_image = frame.copy()  # Work on a copy of the frame
+    if face_recognized:
+        # Sunglasses fitting and sign detection logic
+        ret, sign_image = camera.read()
+        if not ret:
+            break
         
         # Convert frame to grayscale
         gray_scale = cv2.cvtColor(sign_image, cv2.COLOR_BGR2GRAY)
@@ -165,6 +184,7 @@ while True:
                     num = (num + 1) % 29  # Cycle through the overlays
                     count = 0
                     ok_sign_count = 0  # Reset OK sign count when sunglasses change
+                cv2.waitKey(1000)  # Wait for 1 second
                 break
         
         # Resize and normalize the sign image
@@ -182,7 +202,7 @@ while True:
         cv2.putText(sign_image, f"Sign: {class_name[2:]} ({confidence_score*100:.2f}%)", (10, 30), fontFace, 1, (0, 255, 0), 2)
         
         # Check if the sign is "OK" and the confidence is above threshold
-        if class_name[2:].lower() == "okay" and confidence_score > 0.75:  # Adjust confidence threshold as needed
+        if class_name[2:].lower() != "ok_sign" and confidence_score > 0.75:  # Adjust confidence threshold as needed
             ok_sign_count += 1
             print(f"OK sign detected: {ok_sign_count}")
             
@@ -223,11 +243,14 @@ while True:
                 face_recognized = False  # Resume face detection
                 ok_sign_count = 0  # Reset OK sign count
         
+        else:
+            ok_sign_count = 0  # Reset OK sign count if not detected
+        
         # Display the OK sign counter
         cv2.putText(sign_image, f"OK Sign Counter: {ok_sign_count}/{REQUIRED_OK_SIGN_COUNT}", (10, 60), fontFace, 1, (255, 0, 0), 2)
         
         # Display the frame
-        cv2.imshow('Face Recognition', sign_image)
+        cv2.imshow('Sunglasses Fitting and Sign Detection', sign_image)
     
     # Exit loop when 'q' is pressed
     if cv2.waitKey(1) & 0xFF == ord('q'):
