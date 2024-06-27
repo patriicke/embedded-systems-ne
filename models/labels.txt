@@ -1,2 +1,0 @@
-0 okay
-1 not_okay

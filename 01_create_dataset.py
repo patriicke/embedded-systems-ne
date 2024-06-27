@@ -3,40 +3,47 @@ import time
 import sqlite3
 import os
 
-def generate_uid():
+def generate_customer_id():
     # Get current Unix timestamp in milliseconds
     current_millis = int(time.time() * 1000)
     # Convert to seconds by dividing by 1000
     current_seconds = current_millis // 1000
     return current_seconds
 
+# Ensure the 'dataset' directory exists
+dataset = 'dataset'
+if not os.path.exists(dataset):
+    os.makedirs(dataset)
+
 # Initialize face cascade
 face_cascade = cv2.CascadeClassifier('models/haarcascade_frontalface_default.xml')
-time.sleep(1)
+time.sleep(.5)
 
 # Connect to SQLite database
 try:
-    conn = sqlite3.connect('customer_faces_data.db')
-    c = conn.cursor()
-    print("Successfully connected to the database")
+    connetion = sqlite3.connect('rwow.db')
+    cursor = connetion.cursor()
+
+    print("Successfully connected to the database!")
 except sqlite3.Error as e:
     print("SQLite error:", e)
+    exit()
 
 # Create a table to store face data if it doesn't exist
 try:
-    c.execute('''CREATE TABLE IF NOT EXISTS customers
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_uid TEXT, customer_name TEXT,confirm DEFAULT 0)''')
-    print("Table 'customers' created successfully")
+    cursor.execute('''CREATE TABLE IF NOT EXISTS customers
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_uid TEXT, customer_name TEXT, image_path TEXT)''')
+    print("'customers' table created successfully!")
 except sqlite3.Error as e:
     print("SQLite error:", e)
+    exit()
 
-# For each person, one face id
-customer_name = input('Enter the Customer Name: ')
-customer_uid = generate_uid()
+# Prompt the customer for their name and generate unique id
+customer_name = input('Enter customer name: ')
+customer_uid = generate_customer_id()
 
-# Wait for 2 seconds to be able to switch to the Webcam Window.
-print("Please get your face ready!")
-time.sleep(1)
+print("Get your face ready!")
+time.sleep(.5)
 
 # Initialize the camera
 camera = cv2.VideoCapture(0)
@@ -45,18 +52,15 @@ camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
 
 # Initialize sample face image
 start_time = time.time()
-interval = 500  # Capture an image every 500 milliseconds
+interval = 250  # Capture an image every 250 milliseconds
 current_time = start_time
 image_count = 0  # Total number of images captured
-dataset_folder = 'dataset'
-if not os.path.exists(dataset_folder):
-    os.makedirs(dataset_folder)
 
 # Start looping
 while True:
     ret, image = camera.read()
     if not ret:
-        print("Failed to capture frame from the camera")
+        print("Failed to capture frame from the camera!")
         break
 
     # Convert frame to grayscale
@@ -70,23 +74,23 @@ while True:
         break
 
     # Display the video frame with message
-    cv2.putText(image, "No face detected. Please position yourself in front of the camera.", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+    cv2.putText(image, "No face detected. Please position your face in front of the camera.", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
     cv2.imshow("Waiting for Face Detection...", image)
 
     # Wait for a key press
     if cv2.waitKey(1) & 0xFF == ord('q'):
-        print("User quit the program.")
+        print("Program exited!")
         break
 
 # Once a face is detected, proceed to capture images and insert into the database
 if len(faces) > 0:
-    print("Face detected. Proceeding to capture images.")
+    print("Face detected. Proceeding to capture images ...")
 
     while True:
         # Capture frame-by-frame
         ret, image = camera.read()
         if not ret:
-            print("Failed to capture frame from the camera")
+            print("Failed to capture frame from the camera! Try again later!")
             break
 
         # Convert frame to grayscale
@@ -106,32 +110,33 @@ if len(faces) > 0:
             fontWeight = 2
             fontBottomMargin = 5
 
-            cv2.putText(image, f"Generating image {image_count+1}", (x, y - fontBottomMargin), fontFace, fontScale, fontColor, fontWeight)
+            cv2.putText(image, f"Image {image_count+1} generated", (x, y - fontBottomMargin), fontFace, fontScale, fontColor, fontWeight)
 
             # Check if enough time has passed to capture an image and if image count is less than 100
-            if (time.time() - current_time) * 1000 >= interval and image_count < 101:
+            if (time.time() - current_time) * 1000 >= interval and image_count < 100:
                 # Generate filename without spaces
                 image_name = f"data.{customer_uid}_{image_count+1}.jpg"
-                image_path = os.path.join(dataset_folder, image_name)
+                image_path = os.path.join('dataset', image_name)
                 
                 # Save the captured image
                 cv2.imwrite(image_path, gray[y:y + h, x:x + w])
+                print(f"Image {image_count+1} saved at {image_path}")
                 current_time = time.time()
                 image_count += 1
 
                 # Save face data to database
-
+                try:
+                    cursor.execute("INSERT INTO customers (customer_uid, customer_name, image_path) VALUES (?, ?, ?)", (customer_uid, customer_name, image_path))
+                    connetion.commit()
+                    print(f"Image {image_count} inserted into database successfully")
+                except sqlite3.Error as e:
+                    print("SQLite error:", e)
 
         # Display the video frame with rectangle
         cv2.imshow("Dataset Generating...", image)
 
         # To stop taking video, press 'q' key or if image count reaches 100
         if cv2.waitKey(1) & 0xFF == ord('q') or image_count >= 100:
-            try:
-                c.execute("INSERT INTO customers (customer_uid, customer_name) VALUES (?, ?)", (customer_uid, customer_name))
-                conn.commit()
-            except sqlite3.Error as e:
-                print("SQLite error:", e)
             break
 
 # Release the camera and close all windows
@@ -139,4 +144,5 @@ camera.release()
 cv2.destroyAllWindows()
 
 # Close the database connection
-conn.close()
+connetion.close()
+print("Database connection closed!")

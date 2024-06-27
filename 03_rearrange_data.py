@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import shutil
 
 # Remove all files in the 'dataset' directory
@@ -24,4 +25,24 @@ for cluster_dir in os.listdir(source_dir):
 # Remove the 'dataset-clusters' directory
 shutil.rmtree(source_dir)
 
-print("All files have been moved from 'dataset-clusters' to 'dataset' and the 'dataset-clusters' directory has been removed.")
+# Connect to the SQLite database
+connection = sqlite3.connect('rwow.db')
+cursor = connection.cursor()
+
+# Retrieve all records from the 'faces' table
+cursor.execute("SELECT id, image_path FROM customers")
+rows = cursor.fetchall()
+
+# Loop through each record
+for row in rows:
+    image_path = row[1]
+    
+    # Check if the associated picture file exists in the 'dataset' folder
+    if not os.path.isfile(image_path):
+        # If the picture file does not exist, delete the record from the 'faces' table
+        cursor.execute("DELETE FROM customers WHERE id=?", (row[0],))
+        connection.commit()
+
+# Close the database connection
+connection.close()
+print("Successfully copied images from 'dataset-clusters' to 'dataset'!")
